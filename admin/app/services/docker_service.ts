@@ -530,6 +530,13 @@ export class DockerService {
               },
             ],
           }
+        } else if (gpuResult.type === 'apple_metal') {
+          this._broadcast(
+            service.service_name,
+            'gpu-config',
+            `Apple Silicon detected. Ollama runs natively on macOS with Metal/MPS acceleration — no Docker GPU passthrough needed.`
+          )
+          // On macOS, Ollama runs natively (not in Docker), so no GPU config is needed for the container
         } else if (gpuResult.type === 'amd') {
           // AMD acceleration is opt-out via the 'ai.amdGpuAcceleration' KV key (default-on).
           // Per memory feedback: KV values can be string or boolean — coerce explicitly.
@@ -913,8 +920,20 @@ export class DockerService {
    *   AMD has no Docker runtime registration to query.
    * Fallback: lspci for host-based installs.
    */
-  private async _detectGPUType(): Promise<{ type: 'nvidia' | 'amd' | 'none'; toolkitMissing?: boolean }> {
+  private async _detectGPUType(): Promise<{ type: 'nvidia' | 'amd' | 'apple_metal' | 'none'; toolkitMissing?: boolean }> {
     try {
+      // On macOS (Darwin), GPU passthrough to Docker is not supported.
+      // Ollama runs natively and uses Metal/MPS directly.
+      const platform = process.env.NOMAD_PLATFORM || (process.platform === 'darwin' ? 'darwin' : 'linux')
+      if (platform === 'darwin') {
+        if (process.arch === 'arm64') {
+          logger.info('[DockerService] macOS Apple Silicon detected — Ollama uses Metal/MPS natively')
+          return { type: 'apple_metal' }
+        }
+        logger.info('[DockerService] macOS Intel detected — no GPU acceleration for Docker containers')
+        return { type: 'none' }
+      }
+
       // Primary: Check Docker daemon for nvidia runtime (works from inside containers)
       try {
         const dockerInfo = await this.docker.info()

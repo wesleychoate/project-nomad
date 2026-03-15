@@ -5,9 +5,24 @@
 ###################################################################################################################################################################################################
 
 # Script                | Project N.O.M.A.D. Uninstall Script
-# Version               | 1.0.0
+# Version               | 1.1.0
 # Author                | Crosstalk Solutions, LLC
 # Website               | https://crosstalksolutions.com
+
+###################################################################################################################################################################################################
+#                                                                                                                                                                                                 #
+#                                                                                  Platform Detection                                                                                             #
+#                                                                                                                                                                                                 #
+###################################################################################################################################################################################################
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/platform.sh" 2>/dev/null || {
+  PLATFORM="$(uname -s)"
+  case "$PLATFORM" in
+    Linux)  PLATFORM="linux"; INSTALL_DIR="/opt/project-nomad" ;;
+    Darwin) PLATFORM="darwin"; INSTALL_DIR="${HOME}/project-nomad" ;;
+  esac
+}
 
 ###################################################################################################################################################################################################
 #                                                                                                                                                                                                 #
@@ -15,7 +30,7 @@
 #                                                                                                                                                                                                 #
 ###################################################################################################################################################################################################
 
-NOMAD_DIR="/opt/project-nomad"
+NOMAD_DIR="$INSTALL_DIR"
 MANAGEMENT_COMPOSE_FILE="${NOMAD_DIR}/compose.yml"
 
 ###################################################################################################################################################################################################
@@ -102,6 +117,57 @@ storage_cleanup() {
   esac
 }
 
+uninstall_macos_extras() {
+  if [[ "$PLATFORM" != "darwin" ]]; then
+    return 0
+  fi
+
+  # Remove launchd disk collector job
+  local plist_path="${HOME}/Library/LaunchAgents/com.projectnomad.disk-collector.plist"
+  if [[ -f "$plist_path" ]]; then
+    echo "Removing disk collector launchd job..."
+    launchctl unload "$plist_path" 2>/dev/null || true
+    rm -f "$plist_path"
+    echo "Disk collector launchd job removed."
+  fi
+
+  # Offer to uninstall Ollama
+  read -p "Do you want to uninstall Ollama? (y/N): " uninstall_ollama_choice
+  case "$uninstall_ollama_choice" in
+    y|Y )
+      echo "Stopping Ollama..."
+      pkill -x "ollama" 2>/dev/null || true
+      sleep 2
+
+      if command -v brew &> /dev/null; then
+        echo "Uninstalling Ollama via Homebrew..."
+        brew uninstall --cask ollama 2>/dev/null || brew uninstall ollama 2>/dev/null || true
+        echo "Ollama uninstalled."
+      else
+        echo "Homebrew not found. Please uninstall Ollama manually."
+      fi
+
+      # Clean up Ollama data
+      read -p "Do you want to remove Ollama model data (~/.ollama)? (y/N): " remove_ollama_data
+      case "$remove_ollama_data" in
+        y|Y )
+          rm -rf "${HOME}/.ollama"
+          echo "Ollama data removed."
+          ;;
+        * )
+          echo "Keeping Ollama data."
+          ;;
+      esac
+      ;;
+    * )
+      echo "Keeping Ollama installed."
+      ;;
+  esac
+
+  echo ""
+  echo "Note: Docker Desktop was NOT uninstalled. Remove it manually via Applications if desired."
+}
+
 uninstall_nomad() {
     echo "Stopping and removing Project N.O.M.A.D. management containers..."
     docker compose -p project-nomad -f "${MANAGEMENT_COMPOSE_FILE}" down
@@ -125,6 +191,9 @@ uninstall_nomad() {
     echo "Removing project-nomad_nomad-update-shared volume if it exists..."
     docker volume rm project-nomad_nomad-update-shared 2>/dev/null && echo "Volume removed." || echo "Volume already removed or not found."
 
+    # macOS-specific cleanup
+    uninstall_macos_extras
+
     # Prompt user for storage cleanup and handle it if so
     storage_cleanup
 
@@ -136,7 +205,10 @@ uninstall_nomad() {
 #                                                                                       Main                                                                                                      #
 #                                                                                                                                                                                                 #
 ###################################################################################################################################################################################################
-check_has_sudo
+
+if [[ "$PLATFORM" == "linux" ]]; then
+  check_has_sudo
+fi
 check_current_directory
 ensure_management_compose_file_exists
 ensure_docker_installed

@@ -412,6 +412,25 @@ export class SystemService {
         ollamaGpuAccessible: false,
       }
 
+      // Detect platform (NOMAD_PLATFORM is set via compose env on both platforms)
+      const nomadPlatform = process.env.NOMAD_PLATFORM || (process.platform === 'darwin' ? 'darwin' : 'linux')
+
+      // Apple Silicon GPU detection — Ollama runs natively with Metal/MPS
+      if (nomadPlatform === 'darwin' && os.arch === 'arm64') {
+        graphics.controllers = [{
+          model: 'Apple Silicon GPU (Metal/MPS)',
+          vendor: 'Apple',
+          bus: '',
+          vram: 0, // Shared memory — not separately reportable
+          vramDynamic: true,
+        }]
+        gpuHealth = {
+          status: 'ok',
+          hasNvidiaRuntime: false,
+          ollamaGpuAccessible: true,
+        }
+      }
+
       // Query Docker API for host-level info (hostname, OS, GPU runtime)
       // si.osInfo() returns the container's info inside Docker, not the host's
       try {
