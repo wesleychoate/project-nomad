@@ -427,6 +427,7 @@ export class SystemService {
         gpuHealth = {
           status: 'ok',
           hasNvidiaRuntime: false,
+          hasRocmRuntime: false,
           ollamaGpuAccessible: true,
         }
       }
