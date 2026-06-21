@@ -24,11 +24,46 @@ GREEN='\033[1;32m' # Light Green.
 
 ###################################################################################################################################################################################################
 #                                                                                                                                                                                                 #
+#                                                                                  Repo Source                                                                                                   #
+#                                                                                                                                                                                                 #
+###################################################################################################################################################################################################
+
+# Override these to install auxiliary files (compose file, helper scripts, platform.sh,
+# disk collector) from a fork/branch instead of upstream's main — useful for running
+# fork-specific changes (e.g. macOS support) that haven't been merged upstream yet:
+#   NOMAD_REPO=wesleychoate/project-nomad NOMAD_REF=macos-compat bash install_nomad.sh
+NOMAD_REPO="${NOMAD_REPO:-Crosstalk-Solutions/project-nomad}"
+NOMAD_REF="${NOMAD_REF:-main}"
+RAW_BASE_URL="https://raw.githubusercontent.com/${NOMAD_REPO}/refs/heads/${NOMAD_REF}/install"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Fetches an install/ file from the configured repo/branch. Prefers a local sibling copy
+# (e.g. when running from a full git clone) over the network — this also makes the
+# documented single-file flow work:
+#   curl -fsSL .../install_nomad.sh -o install_nomad.sh && bash install_nomad.sh
+fetch_install_file() {
+  local filename="$1"
+  local dest="$2"
+  if [[ -f "${SCRIPT_DIR}/${filename}" ]]; then
+    cp "${SCRIPT_DIR}/${filename}" "$dest"
+  else
+    curl -fsSL "${RAW_BASE_URL}/${filename}" -o "$dest"
+  fi
+}
+
+###################################################################################################################################################################################################
+#                                                                                                                                                                                                 #
 #                                                                                  Platform Detection                                                                                             #
 #                                                                                                                                                                                                 #
 ###################################################################################################################################################################################################
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ ! -f "${SCRIPT_DIR}/platform.sh" ]]; then
+  if ! fetch_install_file "platform.sh" "${SCRIPT_DIR}/platform.sh"; then
+    echo "Failed to fetch platform.sh from ${RAW_BASE_URL}/platform.sh. Check your network connection, or NOMAD_REPO/NOMAD_REF if set." >&2
+    exit 1
+  fi
+fi
 source "${SCRIPT_DIR}/platform.sh"
 
 ###################################################################################################################################################################################################
@@ -39,10 +74,6 @@ source "${SCRIPT_DIR}/platform.sh"
 
 WHIPTAIL_TITLE="Project N.O.M.A.D Installation"
 NOMAD_DIR="$INSTALL_DIR"
-MANAGEMENT_COMPOSE_FILE_URL="https://raw.githubusercontent.com/Crosstalk-Solutions/project-nomad/refs/heads/main/install/management_compose.yaml"
-START_SCRIPT_URL="https://raw.githubusercontent.com/Crosstalk-Solutions/project-nomad/refs/heads/main/install/start_nomad.sh"
-STOP_SCRIPT_URL="https://raw.githubusercontent.com/Crosstalk-Solutions/project-nomad/refs/heads/main/install/stop_nomad.sh"
-UPDATE_SCRIPT_URL="https://raw.githubusercontent.com/Crosstalk-Solutions/project-nomad/refs/heads/main/install/update_nomad.sh"
 script_option_debug='true'
 accepted_terms='false'
 local_ip_address=''
@@ -488,7 +519,7 @@ download_management_compose_file() {
   local compose_file_path="${NOMAD_DIR}/compose.yml"
 
   echo -e "${YELLOW}#${RESET} Downloading docker-compose file for management...\\n"
-  if ! curl -fsSL "$MANAGEMENT_COMPOSE_FILE_URL" -o "$compose_file_path"; then
+  if ! fetch_install_file "management_compose.yaml" "$compose_file_path"; then
     echo -e "${RED}#${RESET} Failed to download the docker compose file. Please check the URL and try again."
     exit 1
   fi
@@ -546,19 +577,19 @@ download_helper_scripts() {
   local update_script_path="${NOMAD_DIR}/update_nomad.sh"
 
   echo -e "${YELLOW}#${RESET} Downloading helper scripts...\\n"
-  if ! curl -fsSL "$START_SCRIPT_URL" -o "$start_script_path"; then
+  if ! fetch_install_file "start_nomad.sh" "$start_script_path"; then
     echo -e "${RED}#${RESET} Failed to download the start script. Please check the URL and try again."
     exit 1
   fi
   chmod +x "$start_script_path"
 
-  if ! curl -fsSL "$STOP_SCRIPT_URL" -o "$stop_script_path"; then
+  if ! fetch_install_file "stop_nomad.sh" "$stop_script_path"; then
     echo -e "${RED}#${RESET} Failed to download the stop script. Please check the URL and try again."
     exit 1
   fi
   chmod +x "$stop_script_path"
 
-  if ! curl -fsSL "$UPDATE_SCRIPT_URL" -o "$update_script_path"; then
+  if ! fetch_install_file "update_nomad.sh" "$update_script_path"; then
     echo -e "${RED}#${RESET} Failed to download the update script. Please check the URL and try again."
     exit 1
   fi
@@ -722,14 +753,14 @@ setup_macos_disk_collector() {
 
   echo -e "${YELLOW}#${RESET} Setting up disk info collector for macOS...\\n"
 
-  # Copy the locally-bundled disk collector script to NOMAD_DIR. This must NOT be
-  # downloaded from a remote URL pointing at upstream's main branch — upstream's
-  # collect_disk_info.sh is Linux-only (lsblk, hardcoded /tmp output) and has no
-  # macOS-aware collect_darwin() path, which silently breaks disk-space reporting.
+  # Fetched via NOMAD_REPO/NOMAD_REF (or a local sibling copy) — must NOT be hardcoded to
+  # upstream's main branch. Upstream's collect_disk_info.sh is Linux-only (lsblk, hardcoded
+  # /tmp output) and has no macOS-aware collect_darwin() path, which silently breaks
+  # disk-space reporting if it ever gets pulled instead of this fork's version.
   local collector_script="${NOMAD_DIR}/collect_disk_info.sh"
 
-  if ! cp "${SCRIPT_DIR}/collect_disk_info.sh" "$collector_script"; then
-    echo -e "${YELLOW}#${RESET} Warning: Failed to copy disk collector script. Disk info may not be available.\\n"
+  if ! fetch_install_file "collect_disk_info.sh" "$collector_script"; then
+    echo -e "${YELLOW}#${RESET} Warning: Failed to fetch disk collector script. Disk info may not be available.\\n"
     return 0
   fi
   chmod +x "$collector_script"
