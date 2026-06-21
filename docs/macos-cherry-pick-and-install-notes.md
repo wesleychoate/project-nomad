@@ -4,6 +4,21 @@ Notes from bringing macOS support into `wesleychoate/project-nomad` (fork of
 `Crosstalk-Solutions/project-nomad`) and installing it on the Mac mini that
 runs Ollama (`192.168.4.39`).
 
+**Credit**: the entire macOS port — platform detection, native Ollama on
+macOS instead of a Docker container, Apple Silicon/Metal GPU handling, and
+the install-script refactor to support both Linux and macOS from one
+codebase — is [Aaron Bailey](https://github.com/aaronbailey)'s work, not
+mine. He did it on a plain clone rather than a GitHub fork, so it couldn't
+be merged or credited automatically by GitHub the normal way. This branch
+exists to carry his work forward against a much-diverged fork, fix a few
+bugs that only showed up once it was actually tested on macOS hardware, and
+hopefully get it proposed upstream properly someday. His original commit
+(`3cd8cf59a88d77262d1cc0f052addc2c734f9ab` on
+[aaronbailey/project-nomad-macos](https://github.com/aaronbailey/project-nomad-macos))
+was cherry-picked with `git cherry-pick`, which preserves him as the commit
+author — visible in `git log`/`git blame` on this branch, and will carry
+through automatically if this is ever opened as a PR against upstream.
+
 ## Background
 
 - `aaronbailey/project-nomad-macos` is a plain clone (not a GitHub fork) that
