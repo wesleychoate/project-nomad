@@ -722,12 +722,14 @@ setup_macos_disk_collector() {
 
   echo -e "${YELLOW}#${RESET} Setting up disk info collector for macOS...\\n"
 
-  # Download the disk collector script to NOMAD_DIR
+  # Copy the locally-bundled disk collector script to NOMAD_DIR. This must NOT be
+  # downloaded from a remote URL pointing at upstream's main branch — upstream's
+  # collect_disk_info.sh is Linux-only (lsblk, hardcoded /tmp output) and has no
+  # macOS-aware collect_darwin() path, which silently breaks disk-space reporting.
   local collector_script="${NOMAD_DIR}/collect_disk_info.sh"
-  local collector_url="https://raw.githubusercontent.com/Crosstalk-Solutions/project-nomad/refs/heads/main/install/collect_disk_info.sh"
 
-  if ! curl -fsSL "$collector_url" -o "$collector_script"; then
-    echo -e "${YELLOW}#${RESET} Warning: Failed to download disk collector script. Disk info may not be available.\\n"
+  if ! cp "${SCRIPT_DIR}/collect_disk_info.sh" "$collector_script"; then
+    echo -e "${YELLOW}#${RESET} Warning: Failed to copy disk collector script. Disk info may not be available.\\n"
     return 0
   fi
   chmod +x "$collector_script"
