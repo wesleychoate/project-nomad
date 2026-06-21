@@ -6,10 +6,17 @@ import { SERVICE_NAMES } from '../../constants/service_names.js'
 import { KIWIX_LIBRARY_CMD } from '../../constants/kiwix.js'
 
 export default class ServiceSeeder extends BaseSeeder {
-  // Use environment variable with fallback to production default
+  // Use environment variable with fallback. NOMAD_STORAGE_PATH should always be set by
+  // management_compose.yaml, but if it's ever missing, fall back to a platform-aware default
+  // instead of always assuming Linux — mirrors the NOMAD_PLATFORM fallback pattern used in
+  // docker_service.ts/system_service.ts. process.platform is the container's own (always
+  // 'linux' under Docker), so this only helps for host-level/dev runs, not the normal
+  // containerized path — the compose env var is still the source of truth in production.
   private static NOMAD_STORAGE_ABS_PATH = env.get(
     'NOMAD_STORAGE_PATH',
-    '/opt/project-nomad/storage'
+    process.env.NOMAD_PLATFORM === 'darwin' || process.platform === 'darwin'
+      ? `${process.env.HOME ?? ''}/project-nomad/storage`
+      : '/opt/project-nomad/storage'
   )
   private static DEFAULT_SERVICES: Omit<
     ModelAttributes<Service>,

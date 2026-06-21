@@ -361,3 +361,63 @@ docker ps --filter "name=nomad" --format "table {{.Names}}\t{{.Status}}"
 GPU verification correctly detected Apple Silicon and confirmed Metal/MPS
 acceleration for the AI Assistant. Dashboard reachable at
 `http://192.168.4.39:8080`.
+
+## Bug found during a real multi-hour indexing run: Kiwix/Qdrant storage paths
+
+After a long Comprehensive-tier content download + RAG indexing run,
+`nomad_kiwix_server` was crash-looping with:
+
+```
+ERROR: Failed to load the XML library file '/data/kiwix-library.xml'.
+```
+
+`nomad_admin` was correctly writing `kiwix-library.xml` and downloaded ZIM
+files to the real host disk (`~/project-nomad/storage/zim`) — its bind mount
+goes through `management_compose.yaml`, which got the `${NOMAD_HOME}`
+treatment back in the original cherry-pick. But `nomad_kiwix_server` and
+`nomad_qdrant` aren't defined in `management_compose.yaml` at all — they're
+created dynamically by the admin app itself (same mechanism as the AI
+Assistant/Ollama container), with their bind-mount paths read once at
+**database seed time** from `service_seeder.ts`:
+
+```ts
+private static NOMAD_STORAGE_ABS_PATH = env.get(
+  'NOMAD_STORAGE_PATH',
+  '/opt/project-nomad/storage'
+)
+```
+
+Nothing in `management_compose.yaml` ever set `NOMAD_STORAGE_PATH` — the
+original macOS commit added `NOMAD_PLATFORM` and `OLLAMA_URL` to the admin
+container's environment but missed this one. So the seeder always fell back
+to `/opt/project-nomad/storage`, which — same root cause as the very first
+storage bug in this doc — isn't a path Colima shares with the host, so it
+silently got created *inside the Colima VM's own disk* instead. Kiwix and
+Qdrant ended up reading/writing storage completely disconnected from where
+`nomad_admin` puts everything else. Because `service_seeder.ts` only inserts
+rows for service names that don't already exist (never updates), simply
+fixing the env var doesn't retroactively fix an already-seeded database —
+fixing this on a live install requires a direct correction of the
+`container_config` JSON already baked into the `services` table, not just a
+script/compose fix.
+
+Fixed in two places:
+- `management_compose.yaml`: added `NOMAD_STORAGE_PATH=${NOMAD_HOME:-/opt/project-nomad}/storage`
+  to the admin container's environment, so the seeder gets the right value
+  on first boot for any future install.
+- `service_seeder.ts`: hardened the fallback (if `NOMAD_STORAGE_PATH` is
+  somehow still unset) to be platform-aware instead of always assuming
+  Linux, mirroring the `NOMAD_PLATFORM` fallback pattern already used in
+  `docker_service.ts`/`system_service.ts`.
+
+Live-system recovery (no data loss — ZIM downloads were already on the real
+disk; only ~811MB of Qdrant embeddings needed moving):
+1. Migrate the misplaced Qdrant data out of the Colima VM to the real host
+   path via a throwaway helper container that bind-mounts both the
+   VM-internal path and the real `~/project-nomad/storage` path at once
+   (the only way to bridge an arbitrary VM-internal path and a
+   virtiofs-shared host path, since Colima only shares `/Users` with the
+   guest by default).
+2. Directly `UPDATE` the `Binds` path inside the `container_config` JSON
+   column for the `kiwix` and `qdrant` rows in the `services` table.
+3. Recreate both containers so they pick up the corrected bind mounts.

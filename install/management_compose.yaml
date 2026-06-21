@@ -47,6 +47,11 @@ services:
       - DISABLE_COMPRESSION=false # Most reverse proxies (Nginx, Caddy, etc.) will skip compression if the response is already compressed so this is usally a win all around, but if this causes issues with your setup you can set it to "true" to disable gzip in the admin server
       - OLLAMA_URL=${OLLAMA_URL:-http://ollama:11434}
       - NOMAD_PLATFORM=${NOMAD_PLATFORM:-linux}
+      # Read by ServiceSeeder (admin/database/seeders/service_seeder.ts) to build the bind
+      # mount path for dynamically-created services (Kiwix, Qdrant) that aren't in this
+      # compose file. Without this, the seeder's hardcoded /opt/project-nomad fallback gets
+      # baked into the database at first boot, which is wrong on macOS — see docs/macos-cherry-pick-and-install-notes.md.
+      - NOMAD_STORAGE_PATH=${NOMAD_HOME:-/opt/project-nomad}/storage
     depends_on:
       mysql:
         condition: service_healthy
