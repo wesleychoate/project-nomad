@@ -90,6 +90,14 @@ check_platform() {
   echo -e "${GREEN}#${RESET} Install directory: ${NOMAD_DIR}\\n"
 
   if [[ "$PLATFORM" == "darwin" ]]; then
+    if [[ "$EUID" -eq 0 ]]; then
+      header_red
+      echo -e "${RED}#${RESET} This script should not be run with sudo on macOS.\\n"
+      echo -e "${RED}#${RESET} Unlike on Linux, no step here requires root, and running as root will\\n"
+      echo -e "${RED}#${RESET} leave files in ${NOMAD_DIR} owned by root and break the per-user launchd\\n"
+      echo -e "${RED}#${RESET} job for the disk collector. Please re-run as: bash $(basename "$0")"
+      exit 1
+    fi
     echo -e "${GREEN}#${RESET} macOS detected. Ollama will run natively (not in Docker).\\n"
     if [[ "$GPU_TYPE" == "apple_metal" ]]; then
       echo -e "${GREEN}#${RESET} Apple Silicon detected. Ollama will use Metal/MPS acceleration.\\n"
@@ -207,7 +215,7 @@ check_is_debug_mode(){
 generateRandomPass() {
   local length="${1:-32}"
   local password
-  password=$(tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$length")
+  password=$(LC_ALL=C tr -dc 'A-Za-z0-9' < /dev/urandom | head -c "$length")
   echo "$password"
 }
 
@@ -496,7 +504,11 @@ download_management_compose_file() {
   # causing "Access denied" errors when the admin container tries to connect.
   if [[ -d "${NOMAD_DIR}/mysql" ]]; then
     echo -e "${YELLOW}#${RESET} Removing existing MySQL data directory to ensure credentials match...\\n"
-    sudo rm -rf "${NOMAD_DIR}/mysql"
+    if [[ "$PLATFORM" == "darwin" ]]; then
+      rm -rf "${NOMAD_DIR}/mysql"
+    else
+      sudo rm -rf "${NOMAD_DIR}/mysql"
+    fi
   fi
 
   # Inject dynamic env values into the compose file
